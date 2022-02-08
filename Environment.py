@@ -10,18 +10,20 @@ import numpy as np
 from spawn_npc import spawn_npc
 
 # ---------- 定义全局常量 ----------
-SHOW_PREVIEW = False  # 是否显示预览
-IMG_WIDTH = 80
-IMG_HEIGHT = 60
+from util.process_image import concat_4_image
+
+SAVE_CAMERA_IMAGE = False
+IMG_WIDTH = 160
+IMG_HEIGHT = 120
 
 
 class CarlaEnv(gym.Env):
     """
     汽车交互环境
     """
-    SHOW_CAM = SHOW_PREVIEW  # 是否现实摄像头画面
     STEER_AMT = 1.0
     seconds_per_episode = 100
+    save_camera_image = SAVE_CAMERA_IMAGE
 
     def __init__(self):
         self.image_width = IMG_WIDTH
@@ -29,8 +31,11 @@ class CarlaEnv(gym.Env):
 
         self.actor_list = list()
         self.collision_hist = list()
-        self.front_camera = None
         self.collision_list = list()  # 碰撞传感器历史
+
+        self.full_camera_image = None
+        # 用于存储前后左右四个摄像头捕获的图像
+        self.four_camera_image = {"front": None, "back": None, "left": None, "right": None}
 
         self.client = carla.Client("localhost", 7000)
         self.client.set_timeout(5)
@@ -38,7 +43,6 @@ class CarlaEnv(gym.Env):
 
         self.blueprint_library = self.world.get_blueprint_library()
         self.ego_vehicle = self.blueprint_library.find("vehicle.tesla.model3")  # 随机召唤一辆汽车
-        self.camera_sensor = None  # 前置摄像头传感器
         self.collision_sensor = None  # 碰撞检测传感器
 
         spawn_npc(self.client, self.world, self.blueprint_library)  # 生成随机车辆和行人 NPC
@@ -74,7 +78,7 @@ class CarlaEnv(gym.Env):
         reward = 0  # 此次 step 的奖励
 
         if action == 4:  # 尽量避免执行倒车操作
-            reward -= 0.1
+            reward -= 0.5
 
         last_dis = self.target_dis
         self.target_dis = self.target_transform.location.distance(self.vehicle.get_location())
@@ -110,7 +114,12 @@ class CarlaEnv(gym.Env):
             print(f"本轮训练时间到！")
             done = True
 
-        return self.front_camera, reward, done, None
+        # 拼接四个摄像头捕获的图像
+        self.full_camera_image = concat_4_image(list(self.four_camera_image.values()))
+        if self.save_camera_image:  # 保存摄像头拍摄到的图片
+            cv2.imwrite("./logs/2022-02-07/images/full_camera_image.png", self.full_camera_image)
+
+        return self.full_camera_image, reward, done, None
 
     def render(self, mode="human"):
         pass
@@ -137,15 +146,28 @@ class CarlaEnv(gym.Env):
         self.actor_list.append(self.vehicle)
         # ------------------------------
 
-        # ---------- RGB 摄像头传感器 ----------
+        # ---------- 添加 4 个 RGB 摄像头传感器 ----------
         rgb_cam = self.blueprint_library.find("sensor.camera.rgb")
         rgb_cam.set_attribute("image_size_x", f"{self.image_width}")
         rgb_cam.set_attribute("image_size_y", f"{self.image_height}")
         rgb_cam.set_attribute("fov", "110")
-        transform = carla.Transform(carla.Location(x=2.5, z=0.7))
-        self.camera_sensor = self.world.spawn_actor(rgb_cam, transform, attach_to=self.vehicle)
-        self.camera_sensor.listen(self._process_img)
-        self.actor_list.append(self.camera_sensor)
+
+        front_transform = carla.Transform(carla.Location(x=2.5, z=0.7))
+        back_transform = carla.Transform(carla.Location(x=-2.5, z=0.7), carla.Rotation(yaw=180))
+        left_transform = carla.Transform(carla.Location(y=-2.5, z=0.7), carla.Rotation(yaw=-90))
+        right_transform = carla.Transform(carla.Location(y=2.5, z=0.7), carla.Rotation(yaw=90))
+
+        front_camera_sensor = self.world.spawn_actor(rgb_cam, front_transform, attach_to=self.vehicle)
+        back_camera_sensor = self.world.spawn_actor(rgb_cam, back_transform, attach_to=self.vehicle)
+        left_camera_sensor = self.world.spawn_actor(rgb_cam, left_transform, attach_to=self.vehicle)
+        right_camera_sensor = self.world.spawn_actor(rgb_cam, right_transform, attach_to=self.vehicle)
+
+        front_camera_sensor.listen(lambda image: self._process_img(image, "front"))
+        back_camera_sensor.listen(lambda image: self._process_img(image, "back"))
+        left_camera_sensor.listen(lambda image: self._process_img(image, "left"))
+        right_camera_sensor.listen(lambda image: self._process_img(image, "right"))
+
+        self.actor_list.extend([front_camera_sensor, back_camera_sensor, left_camera_sensor, right_camera_sensor])
         # -----------------------------------
 
         self.vehicle.apply_control(carla.VehicleControl(throttle=1.0, brake=1.0))
@@ -164,18 +186,26 @@ class CarlaEnv(gym.Env):
         self.target_transform = random.choice(self.world.get_map().get_spawn_points())
         self.target_dis = self.target_transform.location.distance(self.vehicle.get_location())
 
-        while self.front_camera is None:
-            time.sleep(0.01)
+        # 保证前后左右四个摄像头都已正常工作
+        while True:
+            for k, v in self.four_camera_image.items():
+                if v is None:
+                    time.sleep(0.01)
+                    break
+            else:
+                break
+        self.full_camera_image = concat_4_image(list(self.four_camera_image.values()))
 
         self.episode_start = time.time()
         self.vehicle.apply_control(carla.VehicleControl(brake=0.0, throttle=0.0))
 
-        return self.front_camera
+        return self.full_camera_image
 
-    def _process_img(self, image):
+    def _process_img(self, image, direction):
         """
         摄像头传感器回调处理
         :param image:
+        :param direction: 前后左右四个方向
         :return:
         """
         # 获取图片并去掉最后一个 alpha 通道
@@ -183,12 +213,10 @@ class CarlaEnv(gym.Env):
         image = image.reshape((self.image_height, self.image_width, 4))
         image = image[:, :, :3]
 
-        if self.SHOW_CAM:  # 展示预览图片
-            cv2.imshow("image", image)
-            cv2.waitKey(1)
+        if self.save_camera_image:  # 保存摄像头拍摄到的图片
+            cv2.imwrite(f"./logs/2022-02-07/images/{direction}.png", image)
 
-        self.front_camera = image
-        return image / 255.0
+        self.four_camera_image[direction] = image
 
     def _collision_data(self, event):
         """

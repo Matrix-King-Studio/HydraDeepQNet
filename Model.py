@@ -18,17 +18,27 @@ TARGET_NETWORK_REPLACE_FREQ = 10  # How frequently target netowrk updates
 BATCH_SIZE = 32
 LR = 0.01  # learning rate
 
+IMG_WIDTH = 320
+IMG_HEIGHT = 240
+
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, w, h, out_size):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
-        self.bn3 = nn.BatchNorm2d(32)
-        self.head = nn.Linear(896, 5)
+        self.conv1 = nn.Conv2d(3, 160, kernel_size=5, stride=2)
+        self.bn1 = nn.BatchNorm2d(160)
+        self.conv2 = nn.Conv2d(160, 320, kernel_size=5, stride=2)
+        self.bn2 = nn.BatchNorm2d(320)
+        self.conv3 = nn.Conv2d(320, 320, kernel_size=5, stride=2)
+        self.bn3 = nn.BatchNorm2d(320)
+
+        def conv2d_size_out(size, kernel_size=5, stride=2):
+            return (size - (kernel_size - 1) - 1) // stride + 1
+
+        conv_w = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
+        conv_h = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
+        linear_input_size = conv_w * conv_h * 320
+        self.head = nn.Linear(linear_input_size, out_size)
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)))  # 一层卷积
@@ -39,7 +49,7 @@ class Net(nn.Module):
 
 class DQN:
     def __init__(self, memory_capacity=100):
-        self.policy_net, self.target_net = Net(), Net()
+        self.policy_net, self.target_net = Net(IMG_WIDTH, IMG_HEIGHT, 5), Net(IMG_WIDTH, IMG_HEIGHT, 5)
 
         # Define counter, memory size and loss function
         self.learn_step_counter = 0  # count the steps of learning process
