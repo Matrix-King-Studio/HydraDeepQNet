@@ -8,9 +8,9 @@ def concat_4_image(image_list):
     :param image_list: [前、后、左、右]
     :return:
     """
-    front_back_concat = np.concatenate((image_list[0], image_list[1]), axis=0)  # 前后摄像头图像拼接
-    left_right_concat = np.concatenate((image_list[2], image_list[3]), axis=0)  # 左右摄像头图像拼接
-    full_concat = np.concatenate((front_back_concat, left_right_concat), axis=1)    # 前后左右拼接在一起
+    front_left_concat = np.concatenate((image_list[0], image_list[2]), axis=0)  # 前、左摄像头图像拼接
+    right_back_concat = np.concatenate((image_list[3], image_list[1]), axis=0)  # 右、后摄像头图像拼接
+    full_concat = np.concatenate((front_left_concat, right_back_concat), axis=1)    # 前后左右拼接在一起
     return full_concat / 255.0
 
 
