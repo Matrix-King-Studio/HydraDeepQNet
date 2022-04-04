@@ -3,8 +3,8 @@ import os.path
 from datetime import datetime
 
 from Model import DQN
-from Environment import CarlaEnv
 from utils import TensorBoard
+from Environment import CarlaEnv
 
 if __name__ == '__main__':
 	runs_name = ""
@@ -18,22 +18,24 @@ if __name__ == '__main__':
 	for episode in range(episodes):
 		old_observation = carla_env.reset()
 		
-		info_dict = {"reward": [], "distance": []}  # 用于记录当前轮训练过程中的一些信息
+		step = 0
 		while True:
+			step += 1
 			action = dqn_model.choose_action(old_observation)
 			observation, reward, done, info = carla_env.step(action)
 			
 			dqn_model.push_memory(old_observation, action, reward, observation)
 			old_observation = observation
-			
-			info_dict["reward"].append(reward)
-			info_dict["distance"].append(info.get("target_distance"))
+
+			if episode and episode % 10 == 0:   # 每 10 集记录一次训练过程中的各种参数
+				tensorboard.writer.add_scalar(f"Train Process {episode} Reward", reward, step)
+				tensorboard.writer.add_scalar(f"Train Process {episode} Speed", info.get("speed"), step)
+				tensorboard.writer.add_scalar(f"Train Process {episode} Distance", info.get("target_distance"), step)
 			
 			if done:  # 本集结束，重置环境
 				observation = carla_env.reset()
 				break
 		
-		tensorboard.process_info(episode, info_dict)  # 处理当前轮训练信息，记录日志
-		if (dqn_model.position % 10) == 0:
+		if (dqn_model.position % 5) == 0:
 			dqn_model.learn(epoch=episode)
 	carla_env.close()

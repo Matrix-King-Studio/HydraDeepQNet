@@ -6,18 +6,6 @@ class TensorBoard:
 	def __init__(self, log_dir):
 		self.log_dir = log_dir
 		self.writer = SummaryWriter(self.log_dir)
-	
-	def process_info(self, episode, info_dict):
-		"""
-		处理训练过程信息，记录日志
-		:param episode:
-		:param info_dict:
-		:return:
-		"""
-		steps = len(info_dict.get("reward"))
-		for step in range(steps):
-			scalar_dict = {"reward": info_dict.get("reward")[step], "distance": info_dict.get("distance")[step]}
-			self.writer.add_scalars("Train Process", scalar_dict, steps)
 
 
 def exe_command(command):

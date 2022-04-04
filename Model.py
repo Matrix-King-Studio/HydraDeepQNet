@@ -15,9 +15,9 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 Tensor = FloatTensor
 
-EPSILON = 0.9  # epsilon used for epsilon greedy approach
+EPSILON = 0.9
 GAMMA = 0.9
-TARGET_NETWORK_REPLACE_FREQ = 10  # How frequently target network updates
+TARGET_NETWORK_REPLACE_FREQ = 10
 BATCH_SIZE = 32
 
 IMG_WIDTH = 320
@@ -132,8 +132,8 @@ class DQN:
 
         self.optimizer.zero_grad()
         eval_loss.backward()
-        self.scheduler.step()
         self.optimizer.step()
+        self.scheduler.step()
 
         # 在 TensorBoard 中记录当前训练信息
         self.tensorboard.writer.add_scalars("Training Loss", {"Policy": eval_loss.item()}, epoch)

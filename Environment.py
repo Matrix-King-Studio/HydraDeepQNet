@@ -2,13 +2,12 @@ import math
 import random
 import time
 
-import cv2
-import gym
 import carla
+import gym
+import torch
 import numpy as np
 
 from spawn_npc import spawn_npc
-
 # ---------- 定义全局常量 ----------
 from util.process_image import concat_4_image
 
@@ -69,16 +68,16 @@ class CarlaEnv(gym.Env):
 			control = carla.VehicleControl(throttle=0.5, steer=-1, brake=0.0, hand_brake=False, reverse=False)
 		elif action == 2:
 			control = carla.VehicleControl(throttle=0.5, steer=1, brake=0.0, hand_brake=False, reverse=False)
-		elif action == 4:
+		elif action == 3:
 			control = carla.VehicleControl(throttle=0.0, steer=0.0, brake=0.5, hand_brake=False, reverse=False)
-		else:
+		elif action == 4:
 			control = carla.VehicleControl(throttle=1.0, steer=0.0, brake=0.0, hand_brake=False, reverse=True)
 		self.vehicle.apply_control(control)
 		
 		reward = 0  # 此次 step 的奖励
 		
 		if action == 4:  # 尽量避免执行倒车操作
-			reward -= 0.5
+			reward -= 1
 		
 		last_distance = self.target_distance
 		self.target_distance = self.target_transform.location.distance(self.vehicle.get_location())
@@ -103,21 +102,17 @@ class CarlaEnv(gym.Env):
 			reward += (kmh - 50) / 100
 		
 		if self.episode_start + self.seconds_per_episode < time.time():
+			print(f"本轮训练时间到！")
 			done = True
-		
+			
 		if not done:
 			reward *= (time.time() - self.episode_start) / self.seconds_per_episode
 		
-		if self.episode_start + self.seconds_per_episode < time.time():
-			print(f"本轮训练时间到！")
-			done = True
-		
 		# 拼接四个摄像头捕获的图像
 		self.full_camera_image = concat_4_image(list(self.four_camera_image.values()))
-		if self.save_camera_image:  # 保存摄像头拍摄到的图片
-			cv2.imwrite("./logs/2022-02-07/images/full_camera_image.png", self.full_camera_image)
+		self.tensorboard.writer.add_image("Image", torch.tensor(self.full_camera_image), dataformats="HWC")
 		
-		info = {"target_distance": self.target_distance}
+		info = {"target_distance": self.target_distance, "speed": kmh}
 		return self.full_camera_image, reward, done, info
 	
 	def render(self, mode="human"):
@@ -211,10 +206,6 @@ class CarlaEnv(gym.Env):
 		image = np.array(image.raw_data)
 		image = image.reshape((self.image_height, self.image_width, 4))
 		image = image[:, :, :3]
-		
-		if self.save_camera_image:  # 保存摄像头拍摄到的图片
-			cv2.imwrite(f"./logs/2022-02-07/images/{direction}.png", image)
-		
 		self.four_camera_image[direction] = image
 	
 	def _collision_data(self, event):
